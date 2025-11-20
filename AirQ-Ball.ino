@@ -9,7 +9,7 @@
 #include <ESP8266httpUpdate.h>
 
 // Version information
-#define VERSION "1.01.11"
+#define VERSION "1.01.19"
 #define BUILD_DATE __DATE__
 
 // LED Ring Configuration
@@ -19,12 +19,12 @@
 #define COLOR_ORDER GRB
 
 // Logo URLs
-#define LOGO_URL "https://raw.githubusercontent.com/solidar-it/commonimages/refs/heads/main/solidarit_200x200.png"
-#define AIRQ_LOGO_URL "https://raw.githubusercontent.com/solidar-it/commonimages/refs/heads/main/airq_with_slogan_200x200.png"
+#define LOGO_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/commonimages/refs/heads/main/solidarit_200x200.png"
+#define AIRQ_LOGO_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/commonimages/refs/heads/main/airq_with_slogan_200x200.png"
 
 // Firmware Update URLs
-#define FW_BASE_URL "https://github.com/solidar-it/AirQ-Ball/raw/main/AirQ-Ball/build/latest/"
-#define FW_VERSION_URL "https://raw.githubusercontent.com/solidar-it/AirQ-Ball/main/AirQ-Ball/build/latest/version.txt"
+#define FW_BASE_URL "https://github.com/Koinsep-SolidarIT/AirQ-Ball/tree/main/build/latest/"
+#define FW_VERSION_URL "https://github.com/Koinsep-SolidarIT/AirQ-Ball/tree/main/build/latest/version.txt"
 
 // Sensor.community API
 #define SENSOR_API "http://data.sensor.community/airrohr/v1/sensor/"
