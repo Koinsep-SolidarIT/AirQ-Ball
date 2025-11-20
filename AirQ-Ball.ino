@@ -9,7 +9,7 @@
 #include <ESP8266httpUpdate.h>
 
 // Version information
-#define VERSION "1.2.1"
+#define VERSION "1.2.3"
 #define BUILD_DATE __DATE__
 
 // LED Ring Configuration
