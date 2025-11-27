@@ -7,16 +7,17 @@
 #include <WiFiClient.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
+#include <BearSSLHelpers.h>
+#include <WiFiClientSecure.h>
 
 // Version information - Dynamic for build system
 #ifndef VERSION
-  #define VERSION "1.2.9"
+  #define VERSION "1.2.10"
 #endif
 
 #ifndef BUILD_DATE
   #define BUILD_DATE __DATE__
 #endif
-
 
 // LED Ring Configuration
 #define LED_PIN     D4
@@ -306,74 +307,80 @@ bool updateSensorData() {
   return false;
 }
 
-// OTA Update Functions
+// OTA Update Functions - Improved Version
 String checkForUpdates() {
   Serial.println("Checking for firmware updates...");
   
-  // Try multiple URL formats
-  String urls[] = {
-    "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/version.txt",
-    "https://cdn.jsdelivr.net/gh/Koinsep-SolidarIT/AirQ-Ball@main/build/latest/version.txt",
-    "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/master/build/latest/version.txt"
-  };
-  
-  for(int i = 0; i < 3; i++) {
-    String result = tryUpdateCheck(urls[i]);
-    if (!result.startsWith("Failed")) {
-      return result;
-    }
-    delay(1000); // Wait between attempts
+  // Test internet connection first
+  if (!testInternetConnection()) {
+    return "No internet connection";
   }
-  
-  return "Failed to check for updates. Please ensure build files are on GitHub.";
+
+  // Try direct HTTPS first
+  return tryDirectHTTPS();
 }
 
-String tryUpdateCheck(String versionURL) {
-  Serial.println("Trying: " + versionURL);
+String tryDirectHTTPS() {
+  Serial.println("Trying direct HTTPS connection...");
+  
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  client->setInsecure(); // Bypass certificate verification
+  client->setTimeout(15000);
   
   HTTPClient http;
-  WiFiClient client;
   
-  http.begin(client, versionURL);
+  String versionURL = "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/version.txt";
+  Serial.println("HTTPS URL: " + versionURL);
+  
+  http.begin(*client, versionURL);
   http.setUserAgent("AirQ-Ball/" + String(VERSION));
-  http.setTimeout(30000); // 30 second timeout
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  http.setReuse(false); // Fresh connection each time
-  
-  // Add headers to avoid caching issues
+  http.setTimeout(15000);
   http.addHeader("Cache-Control", "no-cache");
-  http.addHeader("Pragma", "no-cache");
   
   int httpCode = http.GET();
-  Serial.println("HTTP response code: " + String(httpCode));
+  Serial.println("HTTPS HTTP code: " + String(httpCode));
   
   if (httpCode == 200) {
     String response = http.getString();
     response.trim();
-    
-    Serial.println("Success! Response: " + response);
-    
-    // Extract version
-    int newlinePos = response.indexOf('\n');
-    if (newlinePos != -1) {
-      latestVersion = response.substring(0, newlinePos);
-    } else {
-      latestVersion = response;
+    http.end();
+    return processVersionResponse(response);
+  } else {
+    String error = "HTTPS failed: " + String(httpCode);
+    if (httpCode < 0) {
+      error += " - " + http.errorToString(httpCode);
     }
-    latestVersion.trim();
-    
-    Serial.println("Latest version: " + latestVersion);
-    Serial.println("Current version: " + String(VERSION));
-    
+    Serial.println(error);
     http.end();
     
-    if (latestVersion != VERSION) {
-      return "Update available: " + latestVersion;
-    } else {
-      return "Firmware is up to date";
-    }
+    // Fallback to HTTP
+    return tryHTTPFallback();
+  }
+}
+
+String tryHTTPFallback() {
+  Serial.println("Trying HTTP fallback...");
+  
+  WiFiClient client;
+  HTTPClient http;
+  
+  String versionURL = "http://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/version.txt";
+  
+  http.begin(client, versionURL);
+  http.setUserAgent("AirQ-Ball/" + String(VERSION));
+  http.setTimeout(15000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  
+  int httpCode = http.GET();
+  Serial.println("HTTP code: " + String(httpCode));
+  
+  if (httpCode == 200) {
+    String response = http.getString();
+    response.trim();
+    http.end();
+    return processVersionResponse(response);
   } else {
-    String error = "Failed: " + String(httpCode);
+    String error = "HTTP fallback failed: " + String(httpCode);
     if (httpCode < 0) {
       error += " - " + http.errorToString(httpCode);
     }
@@ -383,41 +390,40 @@ String tryUpdateCheck(String versionURL) {
   }
 }
 
-// Fallback update check method
-String tryFallbackUpdateCheck() {
-  Serial.println("Trying fallback update check...");
+String processVersionResponse(String response) {
+  Serial.println("Processing response: " + response);
   
-  HTTPClient http;
-  WiFiClient client;
-  
-  // Alternative jsDelivr URL format
-  String fallbackURL = "https://cdn.jsdelivr.net/gh/Koinsep-SolidarIT/AirQ-Ball/build/latest/version.txt";
-  Serial.println("Fallback URL: " + fallbackURL);
-  
-  http.begin(client, fallbackURL);
-  http.setUserAgent("AirQ-Ball/" + String(VERSION));
-  http.setTimeout(15000);
-  
-  int httpCode = http.GET();
-  
-  if (httpCode == 200) {
-    String response = http.getString();
-    response.trim();
-    
+  // Extract version (first line of version.txt)
+  int newlinePos = response.indexOf('\n');
+  if (newlinePos != -1) {
+    latestVersion = response.substring(0, newlinePos);
+  } else {
     latestVersion = response;
-    latestVersion.trim();
-    
-    Serial.println("Fallback successful. Latest version: " + latestVersion);
-    
-    if (latestVersion != VERSION) {
-      return "Update available: " + latestVersion;
-    } else {
-      return "Firmware is up to date";
-    }
   }
+  latestVersion.trim();
   
-  http.end();
-  return "Failed to check for updates. Please try again later.";
+  Serial.println("Latest version: " + latestVersion);
+  Serial.println("Current version: " + String(VERSION));
+  
+  if (latestVersion != VERSION) {
+    return "Update available: " + latestVersion;
+  } else {
+    return "Firmware is up to date";
+  }
+}
+
+bool testInternetConnection() {
+  Serial.println("Testing internet connectivity...");
+  
+  WiFiClient client;
+  if (client.connect("www.google.com", 80)) {
+    client.stop();
+    Serial.println("Internet connection: OK");
+    return true;
+  } else {
+    Serial.println("Internet connection: FAILED");
+    return false;
+  }
 }
 
 void performUpdate() {
@@ -426,25 +432,31 @@ void performUpdate() {
   updateStatus = "Starting update...";
   updateProgress = 0;
   
-  // Use jsDelivr CDN
-  String fwURL = "https://cdn.jsdelivr.net/gh/Koinsep-SolidarIT/AirQ-Ball@main/build/latest/latest.bin";
-  Serial.println("Downloading from: " + fwURL);
+  // Check free memory before update
+  if (ESP.getFreeHeap() < 30000) {
+    Serial.println("Low memory, cannot perform update");
+    updateStatus = "Error: Low memory - restart device and try again";
+    updateInProgress = false;
+    return;
+  }
+  
+  // Try multiple update URLs for redundancy
+  String fwURLs[] = {
+    "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/latest.bin",
+    "http://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/latest.bin"
+  };
   
   updateStatus = "Downloading firmware...";
-  
-  // Show updating animation
   updatingAnimation();
   
-  WiFiClient client;
-  
-  // Configure for better stability
-  ESPhttpUpdate.rebootOnUpdate(true);
+  // Configure update
   ESPhttpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  ESPhttpUpdate.rebootOnUpdate(true);
   
   ESPhttpUpdate.onStart([]() {
     Serial.println("OTA update started");
     updateStatus = "Update started, please wait...";
-    updateProgress = 20;
+    updateProgress = 10;
   });
   
   ESPhttpUpdate.onEnd([]() {
@@ -454,23 +466,40 @@ void performUpdate() {
   });
   
   ESPhttpUpdate.onProgress([](int cur, int total) {
-    updateProgress = map(cur, 0, total, 20, 90);
+    updateProgress = map(cur, 0, total, 10, 90);
     Serial.println("Update progress: " + String(updateProgress) + "%");
     updateStatus = "Updating: " + String(updateProgress) + "%";
   });
   
   ESPhttpUpdate.onError([](int err) {
     Serial.println("OTA update error: " + String(err));
-    updateStatus = "Update failed: " + String(err);
+    updateStatus = "Update failed: " + String(err) + " - " + ESPhttpUpdate.getLastErrorString();
     updateProgress = 0;
     updateInProgress = false;
   });
   
-  t_httpUpdate_return ret = ESPhttpUpdate.update(client, fwURL);
+  // Try HTTPS first
+  Serial.println("Trying HTTPS update...");
+  BearSSL::WiFiClientSecure httpsClient;
+  httpsClient.setInsecure();
+  httpsClient.setTimeout(60000);
+  
+  t_httpUpdate_return ret = ESPhttpUpdate.update(httpsClient, fwURLs[0]);
+  
+  // If HTTPS fails, try HTTP
+  if (ret == HTTP_UPDATE_FAILED) {
+    Serial.println("HTTPS update failed, trying HTTP...");
+    updateStatus = "HTTPS failed, trying HTTP...";
+    
+    WiFiClient httpClient;
+    httpClient.setTimeout(60000);
+    
+    ret = ESPhttpUpdate.update(httpClient, fwURLs[1]);
+  }
   
   switch(ret) {
     case HTTP_UPDATE_FAILED:
-      Serial.println("Update failed");
+      Serial.println("Update failed: " + ESPhttpUpdate.getLastErrorString());
       updateInProgress = false;
       break;
     case HTTP_UPDATE_NO_UPDATES:
@@ -483,7 +512,6 @@ void performUpdate() {
       break;
   }
 }
-
 
 String getCurrentDate() {
   // Extract date from build date (format: "MMM DD YYYY")
@@ -1152,7 +1180,12 @@ void handleCheckUpdate() {
 }
 
 void handlePerformUpdate() {
-  server.send(200, "text/plain", "Update started");
+  // Send response immediately since the update process will block
+  server.send(200, "text/plain", "Update started...");
+  
+  // Small delay to ensure response is sent
+  delay(100);
+  
   performUpdate();
 }
 
