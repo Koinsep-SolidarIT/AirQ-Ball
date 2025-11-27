@@ -8,9 +8,14 @@
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 
-// Version information
-#define VERSION "1.2.4"
-#define BUILD_DATE __DATE__
+// Version information - Dynamic for build system
+#ifndef VERSION
+  #define VERSION "1.2.6"
+#endif
+
+#ifndef BUILD_DATE
+  #define BUILD_DATE __DATE__
+#endif
 
 // LED Ring Configuration
 #define LED_PIN     D4
@@ -22,9 +27,10 @@
 #define LOGO_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/commonimages/refs/heads/main/solidarit_200x200.png"
 #define AIRQ_LOGO_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/commonimages/refs/heads/main/airq_with_slogan_200x200.png"
 
-// Firmware Update URLs
-#define FW_BASE_URL "https://github.com/Koinsep-SolidarIT/AirQ-Ball/tree/main/build/latest/"
-#define FW_VERSION_URL "https://github.com/Koinsep-SolidarIT/AirQ-Ball/tree/main/build/latest/version.txt"
+// Firmware Update URLs - Using raw GitHub content
+#define FW_BASE_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/"
+#define FW_VERSION_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/version.txt"
+#define FW_BIN_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/latest.bin"
 
 // Sensor.community API
 #define SENSOR_API "http://data.sensor.community/airrohr/v1/sensor/"
@@ -72,13 +78,14 @@ unsigned long lastDebugTime = 0;
 const unsigned long DEBUG_INTERVAL = 60000; // 1 minute
 unsigned long lastBreathTime = 0;
 
-// Color reference points
-#define COLOR_LIGHT_BLUE   CRGB(173, 216, 230)  // 5 μg/m³
-#define COLOR_LIGHT_GREEN  CRGB(144, 238, 144)  // 15 μg/m³
-#define COLOR_YELLOW       CRGB(255, 255, 0)    // 25 μg/m³
-#define COLOR_ORANGE       CRGB(255, 165, 0)    // 40 μg/m³
-#define COLOR_RED          CRGB(255, 0, 0)      // 55 μg/m³
-#define COLOR_PURPLE       CRGB(128, 0, 128)    // 60+ μg/m³
+// Color reference points - Updated for version 1.2.5/1.2.6
+#define COLOR_LIGHT_BLUE   CRGB(0x63, 0xBA, 0xE4)  // 5 μg/m³ - #63BAE4
+#define COLOR_LIGHT_GREEN  CRGB(0x30, 0xC9, 0x34)  // 15 μg/m³ - #30C934
+#define COLOR_YELLOW       CRGB(0xEC, 0xD9, 0x3B)  // 25 μg/m³ - #ECD93B
+#define COLOR_ORANGE       CRGB(0xF9, 0x95, 0x2B)  // 35 μg/m³ - #F9952B
+#define COLOR_RED          CRGB(0xF8, 0x13, 0x34)  // 45 μg/m³ - #F81334
+#define COLOR_PURPLE       CRGB(0xC4, 0x11, 0xB9)  // 55 μg/m³ - #C411B9
+#define COLOR_DARK_PURPLE  CRGB(0x79, 0x15, 0x7A)  // 65+ μg/m³ - #79157A
 
 void setup() {
   Serial.begin(115200);
@@ -199,18 +206,21 @@ void updateLEDColorFromAQI() {
   } else if (lastP2Value <= 25.0) {
     currentColor = interpolateColor(lastP2Value, 15.0, 25.0, COLOR_LIGHT_GREEN, COLOR_YELLOW);
     currentMode = 0; // Solid
-  } else if (lastP2Value <= 40.0) {
-    currentColor = interpolateColor(lastP2Value, 25.0, 40.0, COLOR_YELLOW, COLOR_ORANGE);
+  } else if (lastP2Value <= 35.0) {
+    currentColor = interpolateColor(lastP2Value, 25.0, 35.0, COLOR_YELLOW, COLOR_ORANGE);
+    currentMode = 0; // Solid
+  } else if (lastP2Value <= 45.0) {
+    currentColor = interpolateColor(lastP2Value, 35.0, 45.0, COLOR_ORANGE, COLOR_RED);
     currentMode = 0; // Solid
   } else if (lastP2Value <= 55.0) {
-    currentColor = interpolateColor(lastP2Value, 40.0, 55.0, COLOR_ORANGE, COLOR_RED);
-    currentMode = 0; // Solid
-  } else if (lastP2Value <= 60.0) {
-    currentColor = COLOR_RED;
-    currentMode = 2; // Breathing with slow cycle
+    currentColor = interpolateColor(lastP2Value, 45.0, 55.0, COLOR_RED, COLOR_PURPLE);
+    currentMode = 2; // Breathing with 5sec cycle
+  } else if (lastP2Value <= 65.0) {
+    currentColor = interpolateColor(lastP2Value, 55.0, 65.0, COLOR_PURPLE, COLOR_DARK_PURPLE);
+    currentMode = 2; // Breathing with 3sec cycle
   } else {
-    currentColor = COLOR_PURPLE;
-    currentMode = 2; // Breathing with slow cycle
+    currentColor = COLOR_DARK_PURPLE;
+    currentMode = 2; // Breathing with 2sec cycle
   }
 }
 
@@ -302,16 +312,27 @@ String checkForUpdates() {
   HTTPClient http;
   WiFiClient client;
   
-  // Use the new API with WiFiClient
+  // Use the raw GitHub URL
   http.begin(client, FW_VERSION_URL);
   http.setUserAgent("AirQ-Ball/" + String(VERSION));
   
   int httpCode = http.GET();
   
   if (httpCode == 200) {
-    latestVersion = http.getString();
+    String response = http.getString();
+    response.trim();
+    
+    // Extract version (first line of version.txt)
+    int newlinePos = response.indexOf('\n');
+    if (newlinePos != -1) {
+      latestVersion = response.substring(0, newlinePos);
+    } else {
+      latestVersion = response;
+    }
     latestVersion.trim();
+    
     Serial.println("Latest version available: " + latestVersion);
+    Serial.println("Current version: " + String(VERSION));
     
     if (latestVersion != VERSION) {
       return "Update available: " + latestVersion;
@@ -332,8 +353,8 @@ void performUpdate() {
   updateStatus = "Starting update...";
   updateProgress = 0;
   
-  // Create firmware URL based on current date and version
-  String fwURL = String(FW_BASE_URL) + "AirQ-Ball_v" + latestVersion + "_" + getCurrentDate() + ".bin";
+  // Use the direct URL to latest.bin
+  String fwURL = String(FW_BIN_URL);
   Serial.println("Downloading from: " + fwURL);
   
   updateStatus = "Downloading firmware...";
@@ -755,8 +776,8 @@ void handleSaveConfig() {
 void handleRoot() {
   // Calculate AQI marker position (0-100%)
   float aqiPercentage = 0;
-  if (lastP2Value <= 60.0) {
-    aqiPercentage = (lastP2Value / 60.0) * 100.0;
+  if (lastP2Value <= 65.0) {
+    aqiPercentage = (lastP2Value / 65.0) * 100.0;
   } else {
     aqiPercentage = 100.0;
   }
@@ -786,7 +807,7 @@ void handleRoot() {
   html += ".update-btn { background: #FF5722; color: white; width: 350px; }";
   html += ".info { background: #2a2a2a; padding: 12px; border-radius: 6px; margin: 10px 0; font-size: 12px; border-left: 4px solid #4CAF50; }";
   html += ".location-info { background: #2a2a2a; padding: 10px; border-radius: 6px; margin: 8px 0; font-size: 11px; border-left: 4px solid #2196F3; }";
-  html += ".aqi-info { background: linear-gradient(90deg, #ADD8E6, #90EE90, #FFFF00, #FFA500, #FF0000, #800080); padding: 6px; border-radius: 4px; margin: 8px 0; height: 20px; position: relative; }";
+  html += ".aqi-info { background: linear-gradient(90deg, #63BAE4, #30C934, #ECD93B, #F9952B, #F81334, #C411B9, #79157A); padding: 6px; border-radius: 4px; margin: 8px 0; height: 20px; position: relative; }";
   html += ".aqi-marker { position: absolute; top: -5px; width: 3px; height: 30px; background: black; border: 1px solid white; border-radius: 2px; }";
   html += ".footer { text-align: center; margin-top: 25px; padding: 12px; background: #222; border-radius: 6px; font-size: 11px; color: #888; }";
   html += ".footer a { color: #4CAF50; text-decoration: none; }";
@@ -829,7 +850,7 @@ void handleRoot() {
     html += "</div>";
   }
   
-  // AQI Gradient with marker
+  // AQI Gradient with marker - Updated colors
   html += "<div class='aqi-info'>";
   html += "<div class='aqi-marker' style='left: " + String(aqiPercentage) + "%;'></div>";
   html += "</div>";
@@ -1011,10 +1032,11 @@ void handleDebugPage() {
   if (lastP2Value <= 5.0) html += "Good (0-5)";
   else if (lastP2Value <= 15.0) html += "Moderate (5-15)";
   else if (lastP2Value <= 25.0) html += "Poor (15-25)";
-  else if (lastP2Value <= 40.0) html += "Unhealthy (25-40)";
-  else if (lastP2Value <= 55.0) html += "Very Unhealthy (40-55)";
-  else if (lastP2Value <= 60.0) html += "Hazardous (55-60)";
-  else html += "Dangerous (60+)";
+  else if (lastP2Value <= 35.0) html += "Unhealthy (25-35)";
+  else if (lastP2Value <= 45.0) html += "Very Unhealthy (35-45)";
+  else if (lastP2Value <= 55.0) html += "Hazardous (45-55) - Breathing 5s";
+  else if (lastP2Value <= 65.0) html += "Dangerous (55-65) - Breathing 3s";
+  else html += "Extreme (65+) - Breathing 2s";
   html += "</span></div>";
   html += "</div>";
   html += "</div>";
@@ -1209,20 +1231,29 @@ void breathing() {
   static int breathDirection = 1;
   static unsigned long lastBreathTime = 0;
   
-  // Slower breathing for red and purple (deeper and slower)
-  unsigned long breathInterval = (lastP2Value > 60.0) ? 800 : 2000; // 1.6sec for >60, 4sec for 55-60
+  // Dynamic breathing intervals based on P2 value
+  unsigned long breathInterval;
+  if (lastP2Value > 65.0) {
+    breathInterval = 2000; // 2sec cycle for >65
+  } else if (lastP2Value > 55.0) {
+    breathInterval = 3000; // 3sec cycle for 55-65
+  } else {
+    breathInterval = 5000; // 5sec cycle for 45-55
+  }
   
-  if (millis() - lastBreathTime >= 80) { // Slower update for deeper breathing
+  if (millis() - lastBreathTime >= 80) {
     fill_solid(leds, NUM_LEDS, currentColor);
     
-    // Slower brightness change for deeper effect
-    breathBrightness += breathDirection * 2;
+    // Adjust breathing speed based on interval
+    int stepSize = map(breathInterval, 2000, 5000, 5, 2); // Faster steps for shorter intervals
+    
+    breathBrightness += breathDirection * stepSize;
     if(breathBrightness >= brightness) {
       breathBrightness = brightness;
       breathDirection = -1;
     }
-    if(breathBrightness <= 5) { // Deeper minimum for more dramatic effect
-      breathBrightness = 5;
+    if(breathBrightness <= 10) {
+      breathBrightness = 10;
       breathDirection = 1;
     }
     
@@ -1230,5 +1261,5 @@ void breathing() {
     FastLED.show();
     lastBreathTime = millis();
   }
-  delay(20); // Increased delay for slower overall loop
+  delay(20);
 }

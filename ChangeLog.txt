@@ -1,0 +1,24 @@
+Key Changes in Version 1.2.5:
+
+    Updated Color Scheme:
+        5 μg/m³: #63BAE4 (Light Blue)
+        15 μg/m³: #30C934 (Light Green)
+        25 μg/m³: #ECD93B (Yellow)
+        35 μg/m³: #F9952B (Orange)
+        45 μg/m³: #F81334 (Red)
+        55 μg/m³: #C411B9 (Purple)
+        65+ μg/m³: #79157A (Dark Purple)
+
+    Dynamic Breathing Patterns:
+        45-55 μg/m³: 5-second breathing cycle
+        55-65 μg/m³: 3-second breathing cycle
+        65+ μg/m³: 2-second breathing cycle
+
+    Updated Web Interface:
+        New gradient bar with all 7 colors
+        Updated debug information with new breathing cycle labels
+        Extended AQI scale up to 65+ μg/m³
+
+    Version Update: Changed from 1.2.4 to 1.2.5
+
+The breathing effect now becomes faster and more intense as air pollution levels increase, providing a more urgent visual warning for dangerous air quality conditions.
