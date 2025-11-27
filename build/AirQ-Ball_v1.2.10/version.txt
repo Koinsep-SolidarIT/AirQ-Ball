@@ -1,0 +1,4 @@
+1.2.10
+Build date: Nov 27 2025
+Build timestamp: 2025-11-27_04-42-47
+Git commit: bdf1fe6

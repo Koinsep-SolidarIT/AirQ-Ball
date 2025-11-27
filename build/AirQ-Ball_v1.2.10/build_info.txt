@@ -1,0 +1,9 @@
+AirQ-Ball Firmware Build Information
+=====================================
+Version: 1.2.10
+Build date: Nov 27 2025
+Build timestamp: 2025-11-27_04-42-47
+Git commit: bdf1fe6
+Original filename: AirQ-Ball.ino.bin
+Target board: esp8266:esp8266:nodemcuv2
+Source file: AirQ-Ball.ino
