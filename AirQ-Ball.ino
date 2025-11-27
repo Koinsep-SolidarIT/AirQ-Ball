@@ -10,12 +10,13 @@
 
 // Version information - Dynamic for build system
 #ifndef VERSION
-  #define VERSION "1.2.6"
+  #define VERSION "1.2.9"
 #endif
 
 #ifndef BUILD_DATE
   #define BUILD_DATE __DATE__
 #endif
+
 
 // LED Ring Configuration
 #define LED_PIN     D4
@@ -24,10 +25,10 @@
 #define COLOR_ORDER GRB
 
 // Logo URLs
-#define LOGO_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/commonimages/refs/heads/main/solidarit_200x200.png"
-#define AIRQ_LOGO_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/commonimages/refs/heads/main/airq_with_slogan_200x200.png"
+#define LOGO_URL "http://raw.githubusercontent.com/Koinsep-SolidarIT/commonimages/refs/heads/main/solidarit_200x200.png"
+#define AIRQ_LOGO_URL "http://raw.githubusercontent.com/Koinsep-SolidarIT/commonimages/refs/heads/main/airq_with_slogan_200x200.png"
 
-// Firmware Update URLs - Using raw GitHub content
+// Firmware Update URLs - Use direct GitHub RAW with specific branch
 #define FW_BASE_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/"
 #define FW_VERSION_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/version.txt"
 #define FW_BIN_URL "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/latest.bin"
@@ -309,20 +310,50 @@ bool updateSensorData() {
 String checkForUpdates() {
   Serial.println("Checking for firmware updates...");
   
+  // Try multiple URL formats
+  String urls[] = {
+    "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/main/build/latest/version.txt",
+    "https://cdn.jsdelivr.net/gh/Koinsep-SolidarIT/AirQ-Ball@main/build/latest/version.txt",
+    "https://raw.githubusercontent.com/Koinsep-SolidarIT/AirQ-Ball/master/build/latest/version.txt"
+  };
+  
+  for(int i = 0; i < 3; i++) {
+    String result = tryUpdateCheck(urls[i]);
+    if (!result.startsWith("Failed")) {
+      return result;
+    }
+    delay(1000); // Wait between attempts
+  }
+  
+  return "Failed to check for updates. Please ensure build files are on GitHub.";
+}
+
+String tryUpdateCheck(String versionURL) {
+  Serial.println("Trying: " + versionURL);
+  
   HTTPClient http;
   WiFiClient client;
   
-  // Use the raw GitHub URL
-  http.begin(client, FW_VERSION_URL);
+  http.begin(client, versionURL);
   http.setUserAgent("AirQ-Ball/" + String(VERSION));
+  http.setTimeout(30000); // 30 second timeout
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setReuse(false); // Fresh connection each time
+  
+  // Add headers to avoid caching issues
+  http.addHeader("Cache-Control", "no-cache");
+  http.addHeader("Pragma", "no-cache");
   
   int httpCode = http.GET();
+  Serial.println("HTTP response code: " + String(httpCode));
   
   if (httpCode == 200) {
     String response = http.getString();
     response.trim();
     
-    // Extract version (first line of version.txt)
+    Serial.println("Success! Response: " + response);
+    
+    // Extract version
     int newlinePos = response.indexOf('\n');
     if (newlinePos != -1) {
       latestVersion = response.substring(0, newlinePos);
@@ -331,8 +362,10 @@ String checkForUpdates() {
     }
     latestVersion.trim();
     
-    Serial.println("Latest version available: " + latestVersion);
+    Serial.println("Latest version: " + latestVersion);
     Serial.println("Current version: " + String(VERSION));
+    
+    http.end();
     
     if (latestVersion != VERSION) {
       return "Update available: " + latestVersion;
@@ -340,11 +373,51 @@ String checkForUpdates() {
       return "Firmware is up to date";
     }
   } else {
-    Serial.println("Failed to check for updates. HTTP code: " + String(httpCode));
-    return "Failed to check for updates";
+    String error = "Failed: " + String(httpCode);
+    if (httpCode < 0) {
+      error += " - " + http.errorToString(httpCode);
+    }
+    Serial.println(error);
+    http.end();
+    return error;
+  }
+}
+
+// Fallback update check method
+String tryFallbackUpdateCheck() {
+  Serial.println("Trying fallback update check...");
+  
+  HTTPClient http;
+  WiFiClient client;
+  
+  // Alternative jsDelivr URL format
+  String fallbackURL = "https://cdn.jsdelivr.net/gh/Koinsep-SolidarIT/AirQ-Ball/build/latest/version.txt";
+  Serial.println("Fallback URL: " + fallbackURL);
+  
+  http.begin(client, fallbackURL);
+  http.setUserAgent("AirQ-Ball/" + String(VERSION));
+  http.setTimeout(15000);
+  
+  int httpCode = http.GET();
+  
+  if (httpCode == 200) {
+    String response = http.getString();
+    response.trim();
+    
+    latestVersion = response;
+    latestVersion.trim();
+    
+    Serial.println("Fallback successful. Latest version: " + latestVersion);
+    
+    if (latestVersion != VERSION) {
+      return "Update available: " + latestVersion;
+    } else {
+      return "Firmware is up to date";
+    }
   }
   
   http.end();
+  return "Failed to check for updates. Please try again later.";
 }
 
 void performUpdate() {
@@ -353,8 +426,8 @@ void performUpdate() {
   updateStatus = "Starting update...";
   updateProgress = 0;
   
-  // Use the direct URL to latest.bin
-  String fwURL = String(FW_BIN_URL);
+  // Use jsDelivr CDN
+  String fwURL = "https://cdn.jsdelivr.net/gh/Koinsep-SolidarIT/AirQ-Ball@main/build/latest/latest.bin";
   Serial.println("Downloading from: " + fwURL);
   
   updateStatus = "Downloading firmware...";
@@ -363,6 +436,11 @@ void performUpdate() {
   updatingAnimation();
   
   WiFiClient client;
+  
+  // Configure for better stability
+  ESPhttpUpdate.rebootOnUpdate(true);
+  ESPhttpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  
   ESPhttpUpdate.onStart([]() {
     Serial.println("OTA update started");
     updateStatus = "Update started, please wait...";
@@ -383,12 +461,11 @@ void performUpdate() {
   
   ESPhttpUpdate.onError([](int err) {
     Serial.println("OTA update error: " + String(err));
-    updateStatus = "Update failed with error: " + String(err);
+    updateStatus = "Update failed: " + String(err);
     updateProgress = 0;
     updateInProgress = false;
   });
   
-  // Use the new API with WiFiClient
   t_httpUpdate_return ret = ESPhttpUpdate.update(client, fwURL);
   
   switch(ret) {
@@ -402,10 +479,11 @@ void performUpdate() {
       updateInProgress = false;
       break;
     case HTTP_UPDATE_OK:
-      Serial.println("Update OK");
+      Serial.println("Update OK - Rebooting");
       break;
   }
 }
+
 
 String getCurrentDate() {
   // Extract date from build date (format: "MMM DD YYYY")
